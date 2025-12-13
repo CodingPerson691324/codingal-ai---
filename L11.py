@@ -15,8 +15,7 @@ def apply_color_filter(image, filter_type):
         filtered_image[:, :, 0] = 0  # Zero out blue channel
         filtered_image[:, :, 2] = 0  # Zero out red channel
     elif filter_type == 'increase_red':
-        filtered_image[:, :, 2] = cv2.add(filtered_image[:, :, 2], 100)  # Increase red channel#
-        filtered_image[:, :, 1] = cv2.add(filtered_image[:, :, 1], 100)  # Increase green channel#
+        filtered_image[:, :, 2] = cv2.add(filtered_image[:, :, 2], 50)  # Increase red channel
     elif filter_type == 'decrease_blue':
         filtered_image[:, :, 0] = cv2.subtract(filtered_image[:, :, 0], 150)  # Decrease blue channel
 
