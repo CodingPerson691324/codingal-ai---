@@ -1,85 +1,130 @@
 import pygame
-import random
 import math
+import sys
+
 pygame.init()
-WIDTH, HEIGHT = 800, 600
-FPS = 60
-BLUE = (50, 130, 255)
-RED = (220, 50, 50)
-BG = (30, 30, 30)
-WHITE = (240, 240, 240)
-PLAYER_SIZE = 40
-TARGET_SIZE = 48
-BULLET_SIZE = 8
-BULLET_SPEED = 700  # px/sec
-PARTICLE_MIN = 20
-PARTICLE_MAX = 40
-PARTICLE_SPEED = 200
-PARTICLE_LIFE = 1.1  # seconds
+
+WIDTH, HEIGHT = 1200, 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Blue Shoots Red - Explosion Demo")
+pygame.display.set_caption("3D Parkour Game")
 clock = pygame.time.Clock()
-font = pygame.font.SysFont(None, 20)
-# Entities
-player = pygame.Rect(60, HEIGHT // 2 - PLAYER_SIZE // 2, PLAYER_SIZE, PLAYER_SIZE)
-target = pygame.Rect(WIDTH - 140, HEIGHT // 2 - TARGET_SIZE // 2, TARGET_SIZE, TARGET_SIZE)
-target_alive = True
-bullets = []  # dicts: {'rect': Rect, 'vel': (vx,vy)}
-particles = []  # dicts: {'pos': [x,y], 'vel': [vx,vy], 'life': t, 'max_life': t, 'color': (r,g,b)}
-def spawn_bullet():
-    bx = player.right
-    by = player.centery - BULLET_SIZE // 2
-    rect = pygame.Rect(bx, by, BULLET_SIZE, BULLET_SIZE)
-    bullets.append({'rect': rect, 'vel': (BULLET_SPEED, 0)})
-def explode_at(x, y):
-    count = random.randint(PARTICLE_MIN, PARTICLE_MAX)
-    for _ in range(count):
-        angle = random.uniform(0, math.tau)
-        speed = random.uniform(PARTICLE_SPEED * 0.3, PARTICLE_SPEED)
-        vx, vy = math.cos(angle) * speed, math.sin(angle) * speed
-        life = random.uniform(PARTICLE_LIFE * 0.6, PARTICLE_LIFE * 1.1)
-        color = random.choice([(255, 180, 40), (255, 110, 20), (255, 220, 110)])
-        particles.append({'pos': [x, y], 'vel': [vx, vy], 'life': life, 'max_life': life, 'color': color, 'r': random.randint(3, 8)})
-def draw_particle(surf, p):
-    life_ratio = max(0.0, p['life'] / p['max_life'])
-    alpha = int(255 * life_ratio)
-    r = int(p['r'] * (1 + (1 - life_ratio)))  # grow slightly
-    col = (*p['color'], alpha)
-    s = pygame.Surface((r*2+2, r*2+2), pygame.SRCALPHA)
-    pygame.draw.circle(s, col, (r+1, r+1), r)
-    surf.blit(s, (p['pos'][0]-r, p['pos'][1]-r))
-def reset():
-    global target, target_alive, bullets, particles
-    target = pygame.Rect(WIDTH - 140, HEIGHT // 2 - TARGET_SIZE // 2, TARGET_SIZE, TARGET_SIZE)
-    target_alive = True
-    bullets = []
-    particles = []
-reset()
+
+class Vector3:
+    def __init__(self, x=0, y=0, z=0):
+        self.x, self.y, self.z = x, y, z
+    
+    def __add__(self, other):
+        return Vector3(self.x + other.x, self.y + other.y, self.z + other.z)
+    
+    def __mul__(self, scalar):
+        return Vector3(self.x * scalar, self.y * scalar, self.z * scalar)
+
+class Player:
+    def __init__(self):
+        self.pos = Vector3(0, -3, 0)
+        self.vel = Vector3(0, 0, 0)
+        self.angle_y = 0
+        self.angle_x = 0
+        self.on_ground = False
+        self.speed = 0.15
+        self.jump_force = 0.5
+        self.gravity = 0.015
+    
+    def update(self, keys):
+        forward = Vector3(math.sin(self.angle_y) * 0.5, 0, math.cos(self.angle_y) * 0.5)
+        right = Vector3(math.cos(self.angle_y) * 0.5, 0, -math.sin(self.angle_y) * 0.5)
+        
+        if keys[pygame.K_w]:
+            self.vel.x += forward.x * self.speed
+            self.vel.z += forward.z * self.speed
+        if keys[pygame.K_s]:
+            self.vel.x -= forward.x * self.speed
+            self.vel.z -= forward.z * self.speed
+        if keys[pygame.K_a]:
+            self.vel.x -= right.x * self.speed
+            self.vel.z -= right.z * self.speed
+        if keys[pygame.K_d]:
+            self.vel.x += right.x * self.speed
+            self.vel.z += right.z * self.speed
+        if keys[pygame.K_SPACE] and self.on_ground:
+            self.vel.y = self.jump_force
+            self.on_ground = False
+        
+        self.vel.x *= 0.85
+        self.vel.z *= 0.85
+        self.vel.y -= self.gravity
+        
+        self.pos = self.pos + self.vel
+        
+        if self.pos.y < -3:
+            self.pos.y = -3
+            self.vel.y = 0
+            self.on_ground = True
+
+def project(point, angle_x, angle_y):
+    x, y, z = point.x, point.y, point.z
+    
+    cos_y, sin_y = math.cos(angle_y), math.sin(angle_y)
+    cos_x, sin_x = math.cos(angle_x), math.sin(angle_x)
+    
+    x, z = x * cos_y - z * sin_y, x * sin_y + z * cos_y
+    y, z = y * cos_x - z * sin_x, y * sin_x + z * cos_x
+    
+    if z < 0.1:
+        return None
+    
+    scale = 400 / z
+    screen_x = WIDTH // 2 + x * scale
+    screen_y = HEIGHT // 2 - y * scale
+    
+    return (screen_x, screen_y, z)
+
+def draw_box(pos, size, angle_x, angle_y, color):
+    vertices = [
+        Vector3(pos.x - size, pos.y - size, pos.z - size),
+        Vector3(pos.x + size, pos.y - size, pos.z - size),
+        Vector3(pos.x + size, pos.y + size, pos.z - size),
+        Vector3(pos.x - size, pos.y + size, pos.z - size),
+        Vector3(pos.x - size, pos.y - size, pos.z + size),
+        Vector3(pos.x + size, pos.y - size, pos.z + size),
+        Vector3(pos.x + size, pos.y + size, pos.z + size),
+        Vector3(pos.x - size, pos.y + size, pos.z + size),
+    ]
+    
+    projected = [project(v, angle_x, angle_y) for v in vertices]
+    projected = [p for p in projected if p]
+    
+    if len(projected) < 3:
+        return
+    
+    sorted_proj = sorted(projected, key=lambda p: p[2], reverse=True)
+    
+    pygame.draw.polygon(screen, color, [(p[0], p[1]) for p in sorted_proj[:3]])
+
+
 running = True
 while running:
-    dt = clock.tick(FPS) / 1000.0  # seconds passed since last frame
+    clock.tick(60)
+    
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-        elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE and target_alive:
-                spawn_bullet()
-            elif event.key == pygame.K_r:
-                reset()
-    # Update bullets
-    for b in bullets[:]:
-        b['rect'].x += b['vel'][0] * dt
-        b['rect'].y += b['vel'][1] * dt
-        if b['rect'].right < 0 or b['rect'].left > WIDTH or b['rect'].bottom < 0 or b['rect'].top > HEIGHT:
-            bullets.remove(b)
-        elif target_alive and b['rect'].colliderect(target):
-            explode_at(target.centerx, target.centery)
-            target_alive = False
-            bullets.remove(b)
-    # Update particles
-    for p in particles[:]:
-        p['pos'][0] += p['vel'][0] * dt
-        p['pos'][1] += p['vel'][1] * dt
-        p['life'] -= dt
-        if p['life'] <= 0:
-            particles.remove(p)
+        if event.type == pygame.MOUSEMOTION:
+            dx, dy = pygame.mouse.get_rel()
+            player.angle_y -= dx * 0.01
+            player.angle_x -= dy * 0.01
+    
+    pygame.mouse.set_visible(False)
+    keys = pygame.key.get_pressed()
+    
+    player.update(keys)
+    
+    screen.fill((135, 206, 235))
+    
+    for pos, size, color in platforms:
+        draw_box(pos, size, player.angle_x, player.angle_y, color)
+    
+    pygame.display.flip()
+
+pygame.quit()
+sys.exit()
